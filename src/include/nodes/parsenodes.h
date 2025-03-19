@@ -2087,11 +2087,11 @@ typedef struct InsertStmt
 	List	   *cols;			/* optional: names of the target columns */
 	Node	   *selectStmt;		/* the source SELECT/VALUES, or NULL */
 	OnConflictClause *onConflictClause; /* ON CONFLICT clause */
-	ReturningClause *returningClause;	/* RETURNING clause */
+	List	   *returningList;	/* list of expressions to return */
 	WithClause *withClause;		/* WITH clause */
 	OverridingKind override;	/* OVERRIDING clause */
-	ParseLoc	stmt_location;	/* start location, or -1 if unknown */
-	ParseLoc	stmt_len;		/* length in bytes; 0 means "rest of string" */
+	bool		super_write;	/* true for high-priority INSERT */
+	int			stmt_location;	/* token location, or -1 if unknown */
 } InsertStmt;
 
 /* ----------------------
@@ -2121,10 +2121,11 @@ typedef struct UpdateStmt
 	List	   *targetList;		/* the target list (of ResTarget) */
 	Node	   *whereClause;	/* qualifications */
 	List	   *fromClause;		/* optional from clause for more tables */
-	ReturningClause *returningClause;	/* RETURNING clause */
+	List	   *returningList;	/* list of expressions to return */
 	WithClause *withClause;		/* WITH clause */
-	ParseLoc	stmt_location;	/* start location, or -1 if unknown */
-	ParseLoc	stmt_len;		/* length in bytes; 0 means "rest of string" */
+	OverridingKind override;	/* OVERRIDING clause */
+	bool		super_write;	/* true for high-priority UPDATE */
+	int			stmt_location;	/* token location, or -1 if unknown */
 } UpdateStmt;
 
 /* ----------------------

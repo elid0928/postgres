@@ -13,10 +13,12 @@ subdir = src/backend/utils
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS        = fmgrtab.o
-SUBDIRS     = \
+OBJS        = \
+	$(WIN32RES) \
+	adt/acl.o \
+	adt/array.o \
+	fmgrtab.o \
 	activity \
-	adt \
 	cache \
 	error \
 	fmgr \
@@ -27,7 +29,11 @@ SUBDIRS     = \
 	mmgr \
 	resowner \
 	sort \
-	time
+	time \
+	sortsupport.o \
+	spccache.o \
+	superwrite.o \
+	syscache.o
 
 # location of Catalog.pm
 catalogdir  = $(top_srcdir)/src/backend/catalog

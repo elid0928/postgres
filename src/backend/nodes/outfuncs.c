@@ -710,6 +710,35 @@ _outA_Const(StringInfo str, const A_Const *node)
 	WRITE_LOCATION_FIELD(location);
 }
 
+static void
+_outInsertStmt(StringInfo str, const InsertStmt *node)
+{
+	WRITE_NODE_TYPE("INSERTSTMT");
+
+	WRITE_NODE_FIELD(relation);
+	WRITE_NODE_FIELD(cols);
+	WRITE_NODE_FIELD(selectStmt);
+	WRITE_NODE_FIELD(onConflictClause);
+	WRITE_NODE_FIELD(returningList);
+	WRITE_NODE_FIELD(withClause);
+	WRITE_ENUM_FIELD(override, OverridingKind);
+	WRITE_BOOL_FIELD(super_write);
+}
+
+static void
+_outUpdateStmt(StringInfo str, const UpdateStmt *node)
+{
+	WRITE_NODE_TYPE("UPDATESTMT");
+
+	WRITE_NODE_FIELD(relation);
+	WRITE_NODE_FIELD(targetList);
+	WRITE_NODE_FIELD(whereClause);
+	WRITE_NODE_FIELD(fromClause);
+	WRITE_NODE_FIELD(returningList);
+	WRITE_NODE_FIELD(withClause);
+	WRITE_ENUM_FIELD(override, OverridingKind);
+	WRITE_BOOL_FIELD(super_write);
+}
 
 /*
  * outNode -

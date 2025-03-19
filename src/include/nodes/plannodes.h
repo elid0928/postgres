@@ -285,54 +285,23 @@ typedef struct ProjectSet
 typedef struct ModifyTable
 {
 	Plan		plan;
-	/* INSERT, UPDATE, DELETE, or MERGE */
-	CmdType		operation;
-	/* do we set the command tag/es_processed? */
-	bool		canSetTag;
-	/* Parent RT index for use of EXPLAIN */
-	Index		nominalRelation;
-	/* Root RT index, if partitioned/inherited */
-	Index		rootRelation;
-	/* some part key in hierarchy updated? */
-	bool		partColsUpdated;
-	/* integer list of RT indexes */
-	List	   *resultRelations;
-	/* per-target-table update_colnos lists */
-	List	   *updateColnosLists;
-	/* per-target-table WCO lists */
-	List	   *withCheckOptionLists;
-	/* alias for OLD in RETURNING lists */
-	char	   *returningOldAlias;
-	/* alias for NEW in RETURNING lists */
-	char	   *returningNewAlias;
-	/* per-target-table RETURNING tlists */
-	List	   *returningLists;
-	/* per-target-table FDW private data lists */
-	List	   *fdwPrivLists;
-	/* indices of FDW DM plans */
-	Bitmapset  *fdwDirectModifyPlans;
-	/* PlanRowMarks (non-locking only) */
-	List	   *rowMarks;
-	/* ID of Param for EvalPlanQual re-eval */
-	int			epqParam;
-	/* ON CONFLICT action */
-	OnConflictAction onConflictAction;
-	/* List of ON CONFLICT arbiter index OIDs  */
-	List	   *arbiterIndexes;
-	/* INSERT ON CONFLICT DO UPDATE targetlist */
-	List	   *onConflictSet;
-	/* target column numbers for onConflictSet */
-	List	   *onConflictCols;
-	/* WHERE for ON CONFLICT UPDATE */
-	Node	   *onConflictWhere;
-	/* RTI of the EXCLUDED pseudo relation */
-	Index		exclRelRTI;
-	/* tlist of the EXCLUDED pseudo relation */
-	List	   *exclRelTlist;
-	/* per-target-table lists of actions for MERGE */
-	List	   *mergeActionLists;
-	/* per-target-table join conditions for MERGE */
-	List	   *mergeJoinConditions;
+	CmdType		operation;		/* INSERT, UPDATE, DELETE, or MERGE */
+	bool		canSetTag;		/* do we set the command tag/es_processed? */
+	Index		nominalRelation;	/* Parent RT index for use of EXPLAIN */
+	Index		rootRelation;	/* Root RT index, if target is partitioned */
+	bool		partColsUpdated;	/* some part key in hierarchy updated */
+	List	   *resultRelations;	/* integer list of RT indexes */
+	int			resultRelIndex; /* index of first resultRel in plan's tlist */
+	int			rootResultRelIndex;	/* index of the partitioned table root */
+	List	   *updateColnosLists;	/* per-target-table update_colnos lists */
+	List	   *withCheckOptionLists;	/* per-target-table WCO lists */
+	List	   *returningLists; /* per-target-table RETURNING tlists */
+	List	   *rowMarks;		/* PlanRowMarks (non-locking only) */
+	OnConflictExpr *onConflictSet;	/* ON CONFLICT DO UPDATE info, or NULL */
+	int			epqParam;		/* ID of Param for EvalPlanQual re-eval */
+	List	   *mergeActionLists;	/* per-target-table lists of MergeActions */
+	List	   *mergeJoinConditions;	/* per-target-table ON quals */
+	bool		super_write;		/* true for SUPER_WRITE operations */
 } ModifyTable;
 
 struct PartitionPruneInfo;		/* forward reference to struct below */

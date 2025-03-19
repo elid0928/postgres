@@ -468,43 +468,20 @@ typedef struct ResultRelInfo
 {
 	NodeTag		type;
 
-	/* result relation's range table index, or 0 if not in range table */
+	/* result relation's range table index */
 	Index		ri_RangeTableIndex;
 
 	/* relation descriptor for result relation */
 	Relation	ri_RelationDesc;
 
-	/* # of indices existing on result relation */
+	/* # of indices that need updating */
 	int			ri_NumIndices;
 
 	/* array of relation descriptors for indices */
 	RelationPtr ri_IndexRelationDescs;
 
 	/* array of key/attr info for indices */
-	IndexInfo **ri_IndexRelationInfo;
-
-	/*
-	 * For UPDATE/DELETE/MERGE result relations, the attribute number of the
-	 * row identity junk attribute in the source plan's output tuples
-	 */
-	AttrNumber	ri_RowIdAttNo;
-
-	/* For UPDATE, attnums of generated columns to be computed */
-	Bitmapset  *ri_extraUpdatedCols;
-	/* true if the above has been computed */
-	bool		ri_extraUpdatedCols_valid;
-
-	/* Projection to generate new tuple in an INSERT/UPDATE */
-	ProjectionInfo *ri_projectNew;
-	/* Slot to hold that tuple */
-	TupleTableSlot *ri_newTupleSlot;
-	/* Slot to hold the old tuple being updated */
-	TupleTableSlot *ri_oldTupleSlot;
-	/* Have the projection and the slots above been initialized? */
-	bool		ri_projectNewInfoValid;
-
-	/* updates do LockTuple() before oldtup read; see README.tuplock */
-	bool		ri_needLockTagTuple;
+	IndexInfoPtr ri_IndexRelationInfo;
 
 	/* triggers to be fired, if any */
 	TriggerDesc *ri_TrigDesc;
@@ -518,14 +495,8 @@ typedef struct ResultRelInfo
 	/* optional runtime measurements for triggers */
 	Instrumentation *ri_TrigInstrument;
 
-	/* On-demand created slots for triggers / returning processing */
-	TupleTableSlot *ri_ReturningSlot;	/* for trigger output tuples */
-	TupleTableSlot *ri_TrigOldSlot; /* for a trigger's old tuple */
-	TupleTableSlot *ri_TrigNewSlot; /* for a trigger's new tuple */
-	TupleTableSlot *ri_AllNullSlot; /* for RETURNING OLD/NEW */
-
 	/* FDW callback functions, if foreign table */
-	struct FdwRoutine *ri_FdwRoutine;
+	FdwRoutine *ri_FdwRoutine;
 
 	/* available to save private state of FDW */
 	void	   *ri_FdwState;
@@ -533,12 +504,41 @@ typedef struct ResultRelInfo
 	/* true when modifying foreign table directly */
 	bool		ri_usesFdwDirectModify;
 
-	/* batch insert stuff */
-	int			ri_NumSlots;	/* number of slots in the array */
-	int			ri_NumSlotsInitialized; /* number of initialized slots */
-	int			ri_BatchSize;	/* max slots inserted in a single batch */
-	TupleTableSlot **ri_Slots;	/* input tuples for batch insert */
-	TupleTableSlot **ri_PlanSlots;
+	/* want to suppress AFTER STATEMENT/ROW TRIGGERS? */
+	bool		ri_suppressTriggers;
+
+	/* identify target partition during tuple routing */
+	TupleConversionMap *ri_RootToPartitionMap;
+
+	/* tuple-splitting info for MERGE's UPDATE/DELETE actions */
+	TupleConversionMap *ri_PartitionToCrossPartMap;
+
+	/* tuple routing descriptor, if any */
+	TupleRouting *ri_TupleRouting;
+
+	/* tuple slot for routing non-local result tuples */
+	TupleTableSlot *ri_PartitionTupleSlot;
+
+	/* tuple conversion map array for rowtype conversion between partitions */
+	TupleConversionMap **ri_PartitionIdMap;
+
+	/* true if partition has remote children (incl. child sliced tts) */
+	bool		ri_partPartRemoteGather;
+
+	/* true if relation is a partition that needs to be locked */
+	bool		ri_LockPartitionTuple;
+
+	/* extra columns needed for the partition key */
+	List	   *ri_ExtraUpdatedCols;
+
+	/* used to find the old 'wholerow' for DELETE and MERGE */
+	int			ri_RowIdAttNo;
+
+	/* boolean showing if this rel was the result of tuple routing */
+	bool		ri_PartitionRoot;
+
+	/* if this is a root partitioned table update, contains UPDATE subplans */
+	struct PartitionUpdatePath *ri_PartitionUpdatePath;
 
 	/* list of WithCheckOption's to be checked */
 	List	   *ri_WithCheckOptions;
@@ -546,77 +546,80 @@ typedef struct ResultRelInfo
 	/* list of WithCheckOption expr states */
 	List	   *ri_WithCheckOptionExprs;
 
-	/* array of constraint-checking expr states */
+	/* array of constraint-checking states */
 	ExprState **ri_ConstraintExprs;
 
+	/* list of generated columns to be computed */
+	List	   *ri_GeneratedCols;
+
+	/* array of stored generated column expr states */
+	ExprState **ri_GeneratedExprs;
+
+	/* number of stored generated expressions in array */
+	int			ri_NumGeneratedNeeded;
+
+	/* is projection info valid? */
+	bool		ri_projectNewInfoValid;
+
+	/* projection to create a new tuple from old/updated */
+	ProjectionInfo *ri_projectNew;
+
 	/*
-	 * Arrays of stored generated columns ExprStates for INSERT/UPDATE/MERGE.
+	 * Flag to use old tuple instead of null (i.e., we're initializing a scan
+	 * by putting tuples in the result relation, rather than modifying it)
 	 */
-	ExprState **ri_GeneratedExprsI;
-	ExprState **ri_GeneratedExprsU;
+	bool		ri_Copy;
 
-	/* number of stored generated columns we need to compute */
-	int			ri_NumGeneratedNeededI;
-	int			ri_NumGeneratedNeededU;
+	/* for use with ri_Copy */
+	TupleTableSlot *ri_CopyMultiInsertBuffer;
 
-	/* list of RETURNING expressions */
-	List	   *ri_returningList;
+	/* for use with ri_Copy */
+	int			ri_CopyMultiInsertCount;
 
-	/* for computing a RETURNING list */
+	/* used to compute tuples for RETURNING */
 	ProjectionInfo *ri_projectReturning;
 
-	/* list of arbiter indexes to use to check conflicts */
-	List	   *ri_onConflictArbiterIndexes;
+	/* tuple slot for holding new tuples for RETURNING */
+	TupleTableSlot *ri_newTupleSlot;
 
-	/* ON CONFLICT evaluation state */
-	OnConflictSetState *ri_onConflict;
+	/* tuple slot for holding old tuples (UPDATE/DELETE/MERGE, with triggers) */
+	TupleTableSlot *ri_oldTupleSlot;
 
-	/* for MERGE, lists of MergeActionState (one per MergeMatchKind) */
-	List	   *ri_MergeActions[NUM_MERGE_MATCH_KINDS];
+	/* tuple slot for holding tuples with old keys (UPD. part. key) */
+	TupleTableSlot *ri_CrossPartUpdateOldSlot;
 
-	/* for MERGE, expr state for checking the join condition */
-	ExprState  *ri_MergeJoinCondition;
+	/* tuple slot to feed into, if insert query has a RETURNING clause. */
+	TupleTableSlot *ri_ReturningSlot;
 
-	/* partition check expression state (NULL if not set up yet) */
-	ExprState  *ri_PartitionCheckExpr;
+	/* list of junk attr numbers that need to be filtered out */
+	Bitmapset  *ri_returningQual;
 
-	/*
-	 * Map to convert child result relation tuples to the format of the table
-	 * actually mentioned in the query (called "root").  Computed only if
-	 * needed.  A NULL map value indicates that no conversion is needed, so we
-	 * must have a separate flag to show if the map has been computed.
-	 */
-	TupleConversionMap *ri_ChildToRootMap;
-	bool		ri_ChildToRootMapValid;
+	/* info for processing tabs in MERGE source relation */
+	struct MergeActionInfo *ri_mergeActionInfo;
 
-	/*
-	 * As above, but in the other direction.
-	 */
-	TupleConversionMap *ri_RootToChildMap;
-	bool		ri_RootToChildMapValid;
+	/* whether update or delete tuples must be locked or re-read */
+	bool		ri_needLockTagTuple;
 
-	/*
-	 * Information needed by tuple routing target relations
-	 *
-	 * RootResultRelInfo gives the target relation mentioned in the query, if
-	 * it's a partitioned table. It is not set if the target relation
-	 * mentioned in the query is an inherited table, nor when tuple routing is
-	 * not needed.
-	 *
-	 * PartitionTupleSlot is non-NULL if RootToChild conversion is needed and
-	 * the relation is a partition.
-	 */
-	struct ResultRelInfo *ri_RootResultRelInfo;
-	TupleTableSlot *ri_PartitionTupleSlot;
+	/* how many batches have been initialized during this execution */
+	int			ri_NumSlotsInitialized;
 
-	/* for use by copyfrom.c when performing multi-inserts */
-	struct CopyMultiInsertBuffer *ri_CopyMultiInsertBuffer;
+	/* array of slots to store batched tuples */
+	TupleTableSlot **ri_Slots;
+
+	/* array of corresponding plan output tuples */
+	TupleTableSlot **ri_PlanSlots;
+
+	/* per-subplan target list for ExecQual/ExecProject */
+	struct JunkFilter *ri_Filter;
 
 	/*
-	 * Used when a leaf partition is involved in a cross-partition update of
-	 * one of its ancestors; see ExecCrossPartitionUpdateForeignKey().
+	 * On INSERT, this slot holds the tuple produced by the underlying plan;
+	 * it is distinct from *ri_Slots.
 	 */
-	List	   *ri_ancestorResultRels;
+	TupleTableSlot *ri_ResultSlot;
+
+	/* Flag to track if this operation has super_write priority */
+	bool	ri_super_write;
 } ResultRelInfo;
 
 /* ----------------

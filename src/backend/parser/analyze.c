@@ -665,66 +665,59 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 
 /*
  * transformInsertStmt -
- *	  transform an Insert Statement
+ *	  transforms an Insert Statement
  */
 static Query *
 transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 {
 	Query	   *qry = makeNode(Query);
 	SelectStmt *selectStmt = (SelectStmt *) stmt->selectStmt;
-	List	   *exprList = NIL;
+	RangeVar   *relation = stmt->relation;
+	List	   *icolumns = stmt->cols;
 	bool		isGeneralSelect;
+	List	   *exprList;
 	List	   *sub_rtable;
-	List	   *sub_rteperminfos;
 	List	   *sub_namespace;
-	List	   *icolumns;
+	List	   *icolexprs;
 	List	   *attrnos;
-	ParseNamespaceItem *nsitem;
-	RTEPermissionInfo *perminfo;
+	RangeTblEntry *rte;
+	RangeTblRef *rtr;
+	Relation	rel;
 	ListCell   *icols;
 	ListCell   *attnos;
-	ListCell   *lc;
+	ListCell   *exprs;
 	bool		isOnConflictUpdate;
-	AclMode		targetPerms;
+	List	   *sub_rtable_save;
+	List	   *sub_namespace_save;
+	List	   *processed_cols = NIL;
+	RTEPermissionInfo *perminfo;
 
 	/* There can't be any outer WITH to worry about */
 	Assert(pstate->p_ctenamespace == NIL);
 
 	qry->commandType = CMD_INSERT;
-	pstate->p_is_insert = true;
-
-	/* process the WITH clause independently of all else */
-	if (stmt->withClause)
-	{
-		qry->hasRecursive = stmt->withClause->recursive;
-		qry->cteList = transformWithClause(pstate, stmt->withClause);
-		qry->hasModifyingCTE = pstate->p_hasModifyingCTE;
-	}
-
-	qry->override = stmt->override;
-
-	isOnConflictUpdate = (stmt->onConflictClause &&
-						  stmt->onConflictClause->action == ONCONFLICT_UPDATE);
+	qry->hasRecursive = false;
+	
+	/* Set the super_write flag properly in the Query node */
+	qry->super_write = stmt->super_write;
 
 	/*
-	 * We have three cases to deal with: DEFAULT VALUES (selectStmt == NULL),
-	 * VALUES list, or general SELECT input.  We special-case VALUES, both for
-	 * efficiency and so we can handle DEFAULT specifications.
+	 * Check for unsupported operations.
 	 *
-	 * The grammar allows attaching ORDER BY, LIMIT, FOR UPDATE, or WITH to a
-	 * VALUES clause.  If we have any of those, treat it as a general SELECT;
-	 * so it will work, but you can't use DEFAULT items together with those.
+	 * An ancient restriction of the parser used to be that INSERT ... SELECT
+	 * couldn't contain a join, but we've removed it.
+	 *
+	 * An ancient restriction used to be that we couldn't support aggregation
+	 * having a subquery in the FROM clause. We can support this now, so we
+	 * just need to check for the case where the aggregation is in the VALUES
+	 * to be inserted.
 	 */
-	isGeneralSelect = (selectStmt && (selectStmt->valuesLists == NIL ||
-									  selectStmt->sortClause != NIL ||
-									  selectStmt->limitOffset != NULL ||
-									  selectStmt->limitCount != NULL ||
-									  selectStmt->lockingClause != NIL ||
-									  selectStmt->withClause != NULL));
+	isGeneralSelect = (selectStmt && selectStmt->op == SETOP_NONE &&
+					   !selectStmt->valuesLists);
 
 	/*
 	 * If a non-nil rangetable/namespace was passed in, and we are doing
-	 * INSERT/SELECT, arrange to pass the rangetable/rteperminfos/namespace
+	 * INSERT/SELECT, arrange to pass the rangetable/namespace
 	 * down to the SELECT.  This can only happen if we are inside a CREATE
 	 * RULE, and in that case we want the rule's OLD and NEW rtable entries to
 	 * appear as part of the SELECT's rtable, not as outer references for it.
@@ -735,15 +728,12 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	{
 		sub_rtable = pstate->p_rtable;
 		pstate->p_rtable = NIL;
-		sub_rteperminfos = pstate->p_rteperminfos;
-		pstate->p_rteperminfos = NIL;
 		sub_namespace = pstate->p_namespace;
 		pstate->p_namespace = NIL;
 	}
 	else
 	{
 		sub_rtable = NIL;		/* not used, but keep compiler quiet */
-		sub_rteperminfos = NIL;
 		sub_namespace = NIL;
 	}
 
@@ -753,6 +743,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	 * mentioned in the SELECT part.  Note that the target table is not added
 	 * to the joinlist or namespace.
 	 */
+	rel = relation;
 	targetPerms = ACL_INSERT;
 	if (isOnConflictUpdate)
 		targetPerms |= ACL_UPDATE;
